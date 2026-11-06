@@ -336,7 +336,7 @@ if (peak < currentSkin().need) skinId = 'comet';
 
 function grantPower(type) {
   if (type === 'shield') power.shield = true; else power[type] = POWERS[type].dur;
-  Sfx.pickup(); ui.showToast(POWERS[type].name + (type === 'shield' ? ' ready' : ' on'), POWERS[type].css);
+  Sfx.pickup(); ui.showToast(type === 'shield' ? 'Shield: blocks one hit' : `${POWERS[type].name}: ${POWERS[type].dur} s`, POWERS[type].css);
 }
 function absorbHit() { power.shield = false; Sfx.shieldHit(); ui.showToast('Shield absorbed the hit', POWERS.shield.css); }
 
@@ -576,7 +576,7 @@ const Bore = (() => {
     const cage = new THREE.LineSegments(cageGeo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .9 }));
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: col, transparent: true, opacity: .55, blending: THREE.AdditiveBlending, depthWrite: false }));
     glow.scale.set(2.4, 2.4, 1);
-    g.add(glow, core, cage); g.position.set(x, y, z); scene.add(g);
+    g.add(glow, core, cage); g.position.set(x, y, z); g.scale.setScalar(1.5); scene.add(g);
     pickups.push({ type, z, x, y, g, core, cage });
   }
   function removePickup(p) { scene.remove(p.g); p.g.children.forEach(c => c.material.dispose()); }
@@ -642,7 +642,16 @@ const Bore = (() => {
     scene.add(mesh); gates.push(gate);
     if (!attract) {
       const roll = rng(), ptype = gpick(['shield', 'slow', 'magnet']), pa = rng() * Math.PI * 2, pr = Math.sqrt(rng()) * LIMIT * .7;
-      if (gateIndex > 4 && roll < .2) makePickup(z + spacing * .5, ptype, Math.cos(pa) * pr, Math.sin(pa) * pr);
+      // first orb is guaranteed early; after that about one gate in three. The orb sits on the flight line:
+      // where this gate's gap will be when the orb reaches the rocket, nudged a little so it isn't always dead centre.
+      if (gateIndex === 4 || (gateIndex > 4 && roll < .35)) {
+        const zOrb = z + spacing * .5, tOrb = -zOrb / Math.max(20, speed);
+        const c = gapCenter(gate, gate.rot + gate.spin * tOrb);
+        const jx = Math.cos(pa) * pr * .25, jy = Math.sin(pa) * pr * .25;
+        let ox = c.x + jx, oy = c.y + jy; const or = Math.hypot(ox, oy);
+        if (or > LIMIT * .85) { ox *= LIMIT * .85 / or; oy *= LIMIT * .85 / or; }
+        makePickup(zOrb, ptype, ox, oy);
+      }
     }
   }
   function removeGate(gt) {
@@ -788,7 +797,7 @@ const Bore = (() => {
     for (const p of pickups) {
       const prevZ = p.z; p.z += mv; p.g.position.z = p.z;
       p.core.rotation.x += dt * 1.3; p.core.rotation.y += dt * 1.9; p.cage.rotation.y -= dt * 1.1; p.cage.rotation.z += dt * .7;
-      if (!p.taken && alive && prevZ < 0 && p.z >= 0 && Math.hypot(pos.x - p.x, pos.y - p.y) < 1.2) { p.taken = true; grantPower(p.type); burst(POWERS[p.type].color, 5); }
+      if (!p.taken && alive && prevZ < 0 && p.z >= 0 && Math.hypot(pos.x - p.x, pos.y - p.y) < 1.8) { p.taken = true; grantPower(p.type); burst(POWERS[p.type].color, 5); }
     }
     pickups = pickups.filter(p => { if (p.taken || p.z > 3) { removePickup(p); return false; } return true; });
 
@@ -931,7 +940,9 @@ const Twin = (() => {
 
   function resize() {
     dpr = Math.min(1.5, window.devicePixelRatio || 1);
-    W = window.innerWidth; H = window.innerHeight; VW = W / H;
+    W = window.innerWidth; H = window.innerHeight;
+    if (!W || !H) return; // hidden or zero-size frame: keep the last good size
+    VW = W / H;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     buildBackdrop();
   }
@@ -965,7 +976,7 @@ const Twin = (() => {
     lastIv = intervalOf(gt);
     gates.push(gt);
     const roll = rng(), ptype = gpick(['shield', 'slow', 'magnet']), side = rng() < .5 ? -1 : 1;
-    if (gateIndex > 4 && roll < .2) pickups.push({ x: x - spacing * .5, s: (prevIv[0] + prevIv[1]) / 2, side, type: ptype });
+    if (gateIndex === 4 || (gateIndex > 4 && roll < .35)) pickups.push({ x: x - spacing * .5, s: (prevIv[0] + prevIv[1]) / 2, side, type: ptype });
   }
 
   function reset() {
@@ -1038,7 +1049,7 @@ const Twin = (() => {
         }
       }
       for (const p of pickups) {
-        if (!p.taken && Math.abs(p.x - sx) < .028 && Math.abs(s - p.s) < .032) { p.taken = true; grantPower(p.type); }
+        if (!p.taken && Math.abs(p.x - sx) < .036 && Math.abs(s - p.s) < .048) { p.taken = true; grantPower(p.type); }
       }
     }
     pickups = pickups.filter(p => !p.taken && p.x > -.1);
@@ -1072,7 +1083,7 @@ const Twin = (() => {
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   }
   function orb(x, y, type) {
-    const r = H * .017, col = POWERS[type].css;
+    const r = H * .022 * (1 + Math.sin(t * 6) * .08), col = POWERS[type].css;
     ctx.save(); ctx.translate(x, y);
     ctx.globalCompositeOperation = 'lighter';
     const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 2.8); gl.addColorStop(0, col + '88'); gl.addColorStop(1, col + '00');
@@ -1114,8 +1125,9 @@ const Twin = (() => {
   function render() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const sk_ = shake ? (Math.random() - .5) * shake * 12 : 0;
-    if (bg) ctx.drawImage(bg, 0, 0, W, H);
-    if (planetC) { const pw = planetC.width / dpr; const px = (((VW * .78 - dist * .012) % (VW + 1)) + VW + 1) % (VW + 1) * H - pw / 2; ctx.globalAlpha = .6; ctx.drawImage(planetC, px, H * .2 - pw / 2, pw, pw); ctx.globalAlpha = 1; }
+    if (!bg || !bg.width || !bg.height) return;
+    ctx.drawImage(bg, 0, 0, W, H);
+    if (planetC && planetC.width) { const pw = planetC.width / dpr; const px = (((VW * .78 - dist * .012) % (VW + 1)) + VW + 1) % (VW + 1) * H - pw / 2; ctx.globalAlpha = .6; ctx.drawImage(planetC, px, H * .2 - pw / 2, pw, pw); ctx.globalAlpha = 1; }
     const ws = worldScale();
     for (const L of starLayers) {
       const streak = L.par > .5 ? speed * ws * H * .05 : 0;
@@ -1355,9 +1367,9 @@ function watchFrameRate(raw, dt) {
 function loop(now) {
   const raw = Math.max(0, (now - last) / 1000); last = now;
   const dt = Math.min(.05, raw);
+  requestAnimationFrame(loop); // schedule first so one bad frame can never stop the game loop
   if (raw < .25) watchFrameRate(raw, dt);
-  frame(dt);
-  requestAnimationFrame(loop);
+  try { frame(dt); } catch (e) { console.error(e); }
 }
 function frame(dt) {
   if (state === 'menu') { Bore.update(dt); Music.energy = .2; Music.bpm = 92; }
